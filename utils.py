@@ -1,3 +1,5 @@
+PORT_NUM = 64512
+
 class Address:
     def __init__(self, ipv4_addr):
         if len(ipv4_addr.split(':')) == 2:

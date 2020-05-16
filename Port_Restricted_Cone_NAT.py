@@ -8,7 +8,7 @@ class Port_Restricted_Cone_NAT:
         self.outer_addr = to_Address(outer_ip)
         self.inner_internet = inner_internet
         self.outer_internet = outer_internet
-        self.available_ports = set(range(65536))
+        self.available_ports = set(range(PORT_NUM))
         self.out_table = {}
         self.in_table = {}
 

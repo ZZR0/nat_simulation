@@ -1,14 +1,14 @@
 from utils import *
 from random import sample
 
-class Symmetric_NAT:
-    def __init__(self, id, local_ip, outer_ip, inner_internet, outer_internet, _type='random'):
+class Static_Symmetric_NAT:
+    def __init__(self, id, local_ip, outer_ip, inner_internet, outer_internet, _type='increase'):
         self.id = id
         self.local_addr = to_Address(local_ip)
         self.outer_addr = to_Address(outer_ip)
         self.inner_internet = inner_internet
         self.outer_internet = outer_internet
-        self.available_ports = list(range(65536))
+        self.available_ports = list(range(PORT_NUM))
         self.out_table = {}
         self.in_table = {}
         self.type = _type   # 'random' or 'increase'
