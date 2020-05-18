@@ -54,13 +54,17 @@ class Server:
         if 'Register' in message:
             self.register(message.split()[1], sender_addr)
 
-    def get_predicted_port(self, client_id, rate=1):
-        port = 0
-        if client_id in self.clients.keys() and random() < rate:
-            client_addr = to_Address(self.clients[client_id])
-            client_nat = self.internet.get_client(client_addr.ip)
-            port = client_nat.available_ports[0]
-        return port
+    def get_predicted_port(self, client_id, rate=1, num=1):
+        ports = []
+        for i in range(num):
+            if client_id in self.clients.keys() and random() < rate:
+                client_addr = to_Address(self.clients[client_id])
+                client_nat = self.internet.get_client(client_addr.ip)
+                ports.append(client_nat.available_ports[i])
+                rate -= 0.01
+            else:
+                ports.extend(sample(range(PORT_NUM), 1))
+        return ports
 
 
 class Client:
@@ -89,8 +93,8 @@ class Client:
     def get_id_addr(self, id):
         return self.server.get_addr(id)
 
-    def get_predicted_port(self, _id, rate=1):
-        return self.server.get_predicted_port(_id, rate=rate)
+    def get_predicted_port(self, _id, rate=1, num=1):
+        return self.server.get_predicted_port(_id, rate=rate, num=num)
 
     def register_to_server(self, port, server):
         self.server = server
@@ -126,7 +130,7 @@ def cone2sys_connect_test(count, port_count):
     success = 0
     for _ in range(count):
         s = 0
-        clients = init_internet_env(0,0,1,1,0)
+        clients = init_internet_env(1,1,1,1,1)
         client_a = clients[2][0]
         client_b = clients[3][0]
 
@@ -162,9 +166,9 @@ def sys2sys_connect_test(count, port_count):
     success = 0
     for _ in range(count):
         s = 0
-        clients = init_internet_env(0,0,1,1,0)
-        client_a = clients[2][0]
-        client_b = clients[3][0]
+        clients = init_internet_env(0,0,1,2,2)
+        client_a = clients[4][0]
+        client_b = clients[4][1]
 
         addrB = client_a.get_id_addr(client_b.id)
         addrA = client_b.get_id_addr(client_a.id)
@@ -229,8 +233,8 @@ def init_internet_env(A_num, B_num, C_num, D_num, E_num):
     clients_A = init_NAT_client('clientA', 'natA', A_num, Full_Cone_NAT, server, outer_internet)
     clients_B = init_NAT_client('clientB', 'natB', B_num, Restricted_Cone_NAT, server, outer_internet)
     clients_C = init_NAT_client('clientC', 'natC', C_num, Port_Restricted_Cone_NAT, server, outer_internet)
-    clients_D = init_NAT_client('clientD', 'natD', D_num, Random_Symmetric_NAT, server, outer_internet)
-    clients_E = init_NAT_client('clientE', 'natE', E_num, Static_Symmetric_NAT, server, outer_internet)
+    clients_D = init_NAT_client('clientD', 'natD', D_num, Static_Symmetric_NAT, server, outer_internet)
+    clients_E = init_NAT_client('clientE', 'natE', E_num, Random_Symmetric_NAT, server, outer_internet)
 
     return clients_A, clients_B, clients_C, clients_D, clients_E
 
@@ -238,7 +242,7 @@ def predicted_cone2sys_connect_test(count, port_count, predict_rate=1):
     success = 0
     for _ in range(count):
         s = 0
-        clients = init_internet_env(0,0,1,0,1)
+        clients = init_internet_env(0,0,1,1,1)
         client_a = clients[2][0]
         client_b = clients[4][0]
 
@@ -249,7 +253,7 @@ def predicted_cone2sys_connect_test(count, port_count, predict_rate=1):
 
         for i in range(port_count):
             try:
-                port = client_a.get_predicted_port(client_b.id, rate=predict_rate)
+                port = client_a.get_predicted_port(client_b.id, rate=predict_rate)[0]
                 addr = '{}:{}'.format(addrB.ip, port)
                 client_a.send(0, 'Hello', addr)
                 success += 1
@@ -270,8 +274,8 @@ def predicted_sys2sys_connect_test(count, port_count, predict_rate=1):
     success = 0
     for _ in range(count):
         s = 0
-        clients = init_internet_env(0,0,0,0,2)
-        client_a = clients[4][0]
+        clients = init_internet_env(0,0,0,2,2)
+        client_a = clients[3][0]
         client_b = clients[4][1]
 
         addrB = client_a.get_id_addr(client_b.id)
@@ -280,8 +284,8 @@ def predicted_sys2sys_connect_test(count, port_count, predict_rate=1):
         addrB = to_Address(addrB)
 
         for i in range(port_count):
-            bport = client_a.get_predicted_port(client_b.id, rate=predict_rate)
-            aport = client_b.get_predicted_port(client_a.id, rate=predict_rate)
+            bport = client_a.get_predicted_port(client_b.id, rate=predict_rate)[0]
+            aport = client_b.get_predicted_port(client_a.id, rate=predict_rate)[0]
             try:
                 addr = '{}:{}'.format(addrB.ip, bport)
                 client_a.send(0, 'Hello', addr)
@@ -300,10 +304,89 @@ def predicted_sys2sys_connect_test(count, port_count, predict_rate=1):
 
     print('Success rate:%.2f%%' % (success/count*100))
 
+
+def original_predicted_cone2sys_connect_test(count, port_count, predict_rate=1):
+    success = 0
+    for _ in range(count):
+        s = 0
+        clients = init_internet_env(1,1,1,1,1)
+        client_a = clients[2][0]
+        client_b = clients[4][0]
+
+        addrB = client_a.get_id_addr(client_b.id)
+        addrA = client_b.get_id_addr(client_a.id)
+        addrB = to_Address(addrB)
+        ports = client_a.get_predicted_port(client_b.id, rate=predict_rate, num=port_count)
+
+        for i in range(port_count):
+            try:
+                addr = '{}:{}'.format(addrB.ip, ports[i])
+                client_a.send(0, 'Hello', addr)
+                s = 1
+                break
+            except:
+                pass
+        
+        if s == 1:
+            success += s
+            continue
+        
+        for i in range(port_count):
+            try:
+                client_b.send(ports[i], 'Hello', addrA)
+                success += 1
+                break
+            except:
+                pass       
+
+    print('Success rate:%.2f%%' % (success/count*100))
+
+def original_predicted_sys2sys_connect_test(count, port_count, predict_rate=1):
+    success = 0
+    for _ in range(count):
+        s = 0
+        clients = init_internet_env(0,0,0,2,2)
+        client_a = clients[3][0]
+        client_b = clients[3][1]
+
+        addrB = client_a.get_id_addr(client_b.id)
+        addrA = client_b.get_id_addr(client_a.id)
+        addrA = to_Address(addrA)
+        addrB = to_Address(addrB)
+
+        bports = client_a.get_predicted_port(client_b.id, rate=predict_rate, num=port_count)
+        aports = client_b.get_predicted_port(client_a.id, rate=predict_rate, num=port_count)
+        s = 0
+        for i in range(port_count):
+            
+            try:
+                addr = '{}:{}'.format(addrB.ip, bports[i])
+                client_a.send(0, 'Hello', addr)
+                s = 1
+                break
+            except:
+                pass
+        if s==1:
+            success += s
+            continue
+
+        for i in range(port_count):
+            try:
+                addr = '{}:{}'.format(addrA.ip, aports[i])
+                client_b.send(0, 'Hello', addr)
+                success += 1
+                break
+            except:
+                pass          
+
+    print('Success rate:%.2f%%' % (success/count*100))
+
 if __name__ == "__main__":
     
     # cone2cone_connect_test(100)
-    # cone2sys_connect_test(100, 200)
-    # sys2sys_connect_test(100, 53706)
-    # predicted_cone2sys_connect_test(100, 200)
-    predicted_sys2sys_connect_test(100, 200)
+    # cone2sys_connect_test(10000, 200)
+    # sys2sys_connect_test(100, 200)
+    # original_predicted_cone2sys_connect_test(10000, 200, predict_rate=0.2)
+    # original_predicted_sys2sys_connect_test(100, 200, predict_rate=0.2)
+    predicted_cone2sys_connect_test(10000, 200,  predict_rate=0.2)
+    # predicted_sys2sys_connect_test(100, 200, predict_rate=0.2)
