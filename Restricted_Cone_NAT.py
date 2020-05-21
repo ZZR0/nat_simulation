@@ -11,6 +11,7 @@ class Restricted_Cone_NAT:
         self.available_ports = set(range(PORT_NUM))
         self.out_table = {}
         self.in_table = {}
+        self.type = 1
 
     def transform_out(self, sender_addr, recei_addr):
         sender_addr = to_Ipv4(sender_addr)

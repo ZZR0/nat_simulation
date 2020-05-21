@@ -56,16 +56,38 @@ class Server:
 
     def get_predicted_port(self, client_id, rate=1, num=1):
         ports = []
-        for i in range(num):
-            if client_id in self.clients.keys() and random() < rate:
-                client_addr = to_Address(self.clients[client_id])
-                client_nat = self.internet.get_client(client_addr.ip)
-                ports.append(client_nat.available_ports[i])
-                rate -= 0.01
+        if client_id in self.clients.keys():
+            client_addr = to_Address(self.clients[client_id])
+            client_nat = self.internet.get_client(client_addr.ip)
+
+            if client_nat.type == 3:
+                for i in range(num):
+                    if random() < rate:
+                        ports.append(client_nat.available_ports[i])
+                        rate -= 0.01
+                    else:
+                        ports.extend(sample(range(PORT_NUM), 1))
+            elif client_nat.type == 4:
+                ports = sample(client_nat.available_ports, num)
             else:
-                ports.extend(sample(range(PORT_NUM), 1))
+                ports = [client_addr.port] * num
+            
+            return ports
+
+        ports = sample(range(PORT_NUM), num)
         return ports
 
+def get_nat_type(nat):
+    type_map = {Full_Cone_NAT:0, 
+                Restricted_Cone_NAT:1, 
+                Port_Restricted_Cone_NAT:2,
+                Static_Symmetric_NAT:3,
+                Random_Symmetric_NAT:4}
+
+    if type(nat) in type_map.keys():
+        return type_map[type(nat)]
+    else:
+        raise 'Unknown NAT Type.'
 
 class Client:
     def __init__(self, id, local_addr, outer_addr, internet, nat):
@@ -74,6 +96,8 @@ class Client:
         self.outer_addr = to_Address(outer_addr)
         self.internet = internet
         self.nat = nat
+        self.nat_type = get_nat_type(nat)
+        self.bind_port = 0
 
     def register(self, server):
         server.register(self)
@@ -100,6 +124,7 @@ class Client:
         self.server = server
         self.send(port, 'Register {}'.format(self.id), self.server.outer_addr.ip)
         self.outer_addr = to_Address(self.get_id_addr(self.id))
+        self.bind_port = port
 
 def cone2cone_connect_test(count):
     success = 0
@@ -108,95 +133,35 @@ def cone2cone_connect_test(count):
         clients = init_internet_env(0,0,2,0,0)
         client_a = clients[2][0]
         client_b = clients[2][1]
-        addrB = client_a.get_id_addr(client_b.id)
-        addrA = client_b.get_id_addr(client_a.id)
-
-        try:
-            client_a.send(0, 'Hello', addrB)
+        if UDP_Hole_Punching(client_a, client_b):
             success += 1
-            continue
-        except:
-            pass
-        try:
-            client_b.send(0, 'Hello', addrA)
-            success += 1
-            continue
-        except:
-            pass
 
     print('Success rate:%.2f%%' % (success/count*100))
 
 def cone2sys_connect_test(count, port_count):
     success = 0
     for _ in range(count):
-        s = 0
         clients = init_internet_env(1,1,1,1,1)
         client_a = clients[2][0]
         client_b = clients[3][0]
 
-        addrB = client_a.get_id_addr(client_b.id)
-        addrA = client_b.get_id_addr(client_a.id)
-        addrB = to_Address(addrB)
-        ports = sample(range(PORT_NUM), port_count)
-
-        for i in range(port_count):
-            try:
-                addr = '{}:{}'.format(addrB.ip, ports[i])
-                client_a.send(0, 'Hello', addr)
-                s = 1
-                break
-            except:
-                pass
-        
-        if s == 1:
-            success += s
-            continue
-        
-        for i in range(port_count):
-            try:
-                client_b.send(ports[i], 'Hello', addrA)
-                success += 1
-                break
-            except:
-                pass
+        if UDP_Multiple_Hole_Punching(client_a, client_b, port_count):
+            success += 1
 
     print('Success rate:%.2f%%' % (success/count*100))
 
 def sys2sys_connect_test(count, port_count):
     success = 0
     for _ in range(count):
-        s = 0
         clients = init_internet_env(0,0,1,2,2)
         client_a = clients[4][0]
         client_b = clients[4][1]
 
-        addrB = client_a.get_id_addr(client_b.id)
-        addrA = client_b.get_id_addr(client_a.id)
-        addrB = to_Address(addrB)
-        ports = sample(range(PORT_NUM), port_count)
+        if UDP_Multiple_Hole_Punching(client_a, client_b, port_count):
+            success += 1
 
-        for i in range(port_count):
-            try:
-                addr = '{}:{}'.format(addrB.ip, ports[i])
-                client_a.send(0, 'Hello', addr)
-                s = 1
-                break
-            except:
-                pass
-        
-        if s == 1:
-            success += s
-            continue
-
-        ports = sample(range(PORT_NUM), port_count)
-        for i in range(port_count):
-            try:
-                addr = '{}:{}'.format(addrB.ip, ports[i])
-                client_b.send(0, 'Hello', addr)
-                success += 1
-                break
-            except:
-                pass
+        if _%100 == 0:
+            print('%d%% Test Completed.'%(_/count*100))
 
     print('Success rate:%.2f%%' % (success/count*100))
 
@@ -238,7 +203,7 @@ def init_internet_env(A_num, B_num, C_num, D_num, E_num):
 
     return clients_A, clients_B, clients_C, clients_D, clients_E
 
-def predicted_cone2sys_connect_test(count, port_count, predict_rate=1):
+def proposed_cone2sys_connect_test(count, port_count, predict_rate=1):
     success = 0
     for _ in range(count):
         s = 0
@@ -246,27 +211,35 @@ def predicted_cone2sys_connect_test(count, port_count, predict_rate=1):
         client_a = clients[2][0]
         client_b = clients[4][0]
 
-        addrB = client_a.get_id_addr(client_b.id)
-        addrA = client_b.get_id_addr(client_a.id)
-        addrB = to_Address(addrB)
-        ports = sample(range(PORT_NUM), port_count)
+        if Proposed_Method(client_a, client_b, port_count, predict_rate=predict_rate):
+            success += 1         
 
-        for i in range(port_count):
-            try:
-                port = client_a.get_predicted_port(client_b.id, rate=predict_rate)[0]
-                addr = '{}:{}'.format(addrB.ip, port)
-                client_a.send(0, 'Hello', addr)
-                success += 1
-                break
-            except:
-                pass
+    print('Success rate:%.2f%%' % (success/count*100))
 
-            try:
-                client_b.send(ports[i], 'Hello', addrA)
-                success += 1
-                break
-            except:
-                pass       
+def proposed_sys2sys_connect_test(count, port_count, predict_rate=1):
+    success = 0
+    for _ in range(count):
+        s = 0
+        clients = init_internet_env(0,0,0,2,2)
+        client_a = clients[3][0]
+        client_b = clients[3][1]
+
+        if Proposed_Method(client_a, client_b, port_count, predict_rate=predict_rate):
+            success += 1     
+
+    print('Success rate:%.2f%%' % (success/count*100))
+
+
+def predicted_cone2sys_connect_test(count, port_count, predict_rate=1):
+    success = 0
+    for _ in range(count):
+        s = 0
+        clients = init_internet_env(1,1,1,1,1)
+        client_a = clients[2][0]
+        client_b = clients[3][0]
+
+        if Port_Prediction_Multiple_Hole_Punching(client_a, client_b, port_count, predict_rate=predict_rate):
+            success += 1
 
     print('Success rate:%.2f%%' % (success/count*100))
 
@@ -276,117 +249,173 @@ def predicted_sys2sys_connect_test(count, port_count, predict_rate=1):
         s = 0
         clients = init_internet_env(0,0,0,2,2)
         client_a = clients[3][0]
-        client_b = clients[4][1]
-
-        addrB = client_a.get_id_addr(client_b.id)
-        addrA = client_b.get_id_addr(client_a.id)
-        addrA = to_Address(addrA)
-        addrB = to_Address(addrB)
-
-        for i in range(port_count):
-            bport = client_a.get_predicted_port(client_b.id, rate=predict_rate)[0]
-            aport = client_b.get_predicted_port(client_a.id, rate=predict_rate)[0]
-            try:
-                addr = '{}:{}'.format(addrB.ip, bport)
-                client_a.send(0, 'Hello', addr)
-                success += 1
-                break
-            except:
-                pass
-
-            try:
-                addr = '{}:{}'.format(addrA.ip, aport)
-                client_b.send(0, 'Hello', addr)
-                success += 1
-                break
-            except:
-                pass          
-
-    print('Success rate:%.2f%%' % (success/count*100))
-
-
-def original_predicted_cone2sys_connect_test(count, port_count, predict_rate=1):
-    success = 0
-    for _ in range(count):
-        s = 0
-        clients = init_internet_env(1,1,1,1,1)
-        client_a = clients[2][0]
-        client_b = clients[4][0]
-
-        addrB = client_a.get_id_addr(client_b.id)
-        addrA = client_b.get_id_addr(client_a.id)
-        addrB = to_Address(addrB)
-        ports = client_a.get_predicted_port(client_b.id, rate=predict_rate, num=port_count)
-
-        for i in range(port_count):
-            try:
-                addr = '{}:{}'.format(addrB.ip, ports[i])
-                client_a.send(0, 'Hello', addr)
-                s = 1
-                break
-            except:
-                pass
-        
-        if s == 1:
-            success += s
-            continue
-        
-        for i in range(port_count):
-            try:
-                client_b.send(ports[i], 'Hello', addrA)
-                success += 1
-                break
-            except:
-                pass       
-
-    print('Success rate:%.2f%%' % (success/count*100))
-
-def original_predicted_sys2sys_connect_test(count, port_count, predict_rate=1):
-    success = 0
-    for _ in range(count):
-        s = 0
-        clients = init_internet_env(0,0,0,2,2)
-        client_a = clients[3][0]
         client_b = clients[3][1]
 
-        addrB = client_a.get_id_addr(client_b.id)
-        addrA = client_b.get_id_addr(client_a.id)
-        addrA = to_Address(addrA)
-        addrB = to_Address(addrB)
-
-        bports = client_a.get_predicted_port(client_b.id, rate=predict_rate, num=port_count)
-        aports = client_b.get_predicted_port(client_a.id, rate=predict_rate, num=port_count)
-        s = 0
-        for i in range(port_count):
-            
-            try:
-                addr = '{}:{}'.format(addrB.ip, bports[i])
-                client_a.send(0, 'Hello', addr)
-                s = 1
-                break
-            except:
-                pass
-        if s==1:
-            success += s
-            continue
-
-        for i in range(port_count):
-            try:
-                addr = '{}:{}'.format(addrA.ip, aports[i])
-                client_b.send(0, 'Hello', addr)
-                success += 1
-                break
-            except:
-                pass          
+        if Port_Prediction_Multiple_Hole_Punching(client_a, client_b, port_count, predict_rate=predict_rate):
+            success += 1
 
     print('Success rate:%.2f%%' % (success/count*100))
+
+def UDP_Hole_Punching(client_a, client_b):
+    addrB = client_a.get_id_addr(client_b.id)
+    addrA = client_b.get_id_addr(client_a.id)
+
+    try:
+        client_a.send(client_a.bind_port, 'Hello', addrB)
+        return True
+    except:
+        pass
+
+    try:
+        client_b.send(client_b.bind_port, 'Hello', addrA)
+        return True
+    except:
+        pass
+
+    return False
+
+def UDP_Multiple_Hole_Punching(client_a, client_b, port_count):
+    if client_a.nat_type < 3 and client_b.nat_type < 3:
+        return UDP_Hole_Punching(client_a, client_b)
+
+    addrB = client_a.get_id_addr(client_b.id)
+    addrA = client_b.get_id_addr(client_a.id)
+    addrB = to_Address(addrB)
+    addrA = to_Address(addrA)
+
+    if client_b.nat_type < 3:
+        bports = [addrB.port] * port_count
+        b_send_port = [client_b.bind_port] * port_count
+    else:
+        bports = sample(range(PORT_NUM), port_count)
+        b_send_port = sample(range(PORT_NUM), port_count)
+
+    if client_a.nat_type < 3:
+        aports = [addrA.port] * port_count
+        a_send_port = [client_a.bind_port] * port_count
+    else:
+        aports = sample(range(PORT_NUM), port_count)
+        a_send_port = sample(range(PORT_NUM), port_count)
+
+    for i in range(port_count):
+        try:
+            addr = '{}:{}'.format(addrB.ip, bports[i])
+            client_a.send(a_send_port[i], 'Hello', addr)
+            return True
+        except:
+            pass
+
+    for i in range(port_count):
+        try:
+            addr = '{}:{}'.format(addrA.ip, aports[i])
+            client_b.send(b_send_port[i], 'Hello', addr)
+            return True
+        except:
+            pass
+
+    return False
+
+def Port_Prediction_Multiple_Hole_Punching(client_a, client_b, port_count, predict_rate=1):
+    if not (client_a.nat_type == 3 or client_b.nat_type == 3):
+        return UDP_Multiple_Hole_Punching(client_a, client_b, port_count)
+
+    addrB = client_a.get_id_addr(client_b.id)
+    addrA = client_b.get_id_addr(client_a.id)
+    addrB = to_Address(addrB)
+    addrA = to_Address(addrA)
+
+    bports = client_a.get_predicted_port(client_b.id, rate=predict_rate, num=port_count)
+    aports = client_b.get_predicted_port(client_a.id, rate=predict_rate, num=port_count)
+
+    if client_b.nat_type < 3:
+        b_send_port = [client_b.bind_port] * port_count
+    else:
+        b_send_port = sample(range(PORT_NUM), port_count)
+
+    if client_a.nat_type < 3:
+        a_send_port = [client_a.bind_port] * port_count
+    else:
+        a_send_port = sample(range(PORT_NUM), port_count)
+
+    for i in range(port_count):
+        try:
+            addr = '{}:{}'.format(addrB.ip, bports[i])
+            client_a.send(a_send_port[i], 'Hello', addr)
+            return True
+        except:
+            pass
+
+    for i in range(port_count):
+        try:
+            addr = '{}:{}'.format(addrA.ip, aports[i])
+            client_b.send(b_send_port[i], 'Hello', addr)
+            return True
+        except:
+            pass
+    
+    return False
+
+def Proposed_Method(client_a, client_b, port_count, predict_rate=1):
+    if not (client_a.nat_type == 3 or client_b.nat_type == 3):
+        return UDP_Multiple_Hole_Punching(client_a, client_b, port_count)
+
+    addrB = client_a.get_id_addr(client_b.id)
+    addrA = client_b.get_id_addr(client_a.id)
+    addrB = to_Address(addrB)
+    addrA = to_Address(addrA)
+
+    if client_b.nat_type < 3:
+        b_send_port = [client_b.bind_port] * port_count
+    else:
+        b_send_port = sample(range(PORT_NUM), port_count)
+
+    if client_a.nat_type < 3:
+        a_send_port = [client_a.bind_port] * port_count
+    else:
+        a_send_port = sample(range(PORT_NUM), port_count)
+
+    for i in range(port_count):
+        bports = client_a.get_predicted_port(client_b.id, rate=predict_rate, num=1)
+        aports = client_b.get_predicted_port(client_a.id, rate=predict_rate, num=1)
+        try:
+            addr = '{}:{}'.format(addrB.ip, bports[0])
+            client_a.send(a_send_port[i], 'Hello', addr)
+            return True
+        except:
+            pass
+
+        try:
+            addr = '{}:{}'.format(addrA.ip, aports[0])
+            client_b.send(b_send_port[i], 'Hello', addr)
+            return True
+        except:
+            pass
+    
+    return False
+
+def network_connect_test(A_num, B_num, C_num, Dnum, E_num, port_count):
+    clients = init_internet_env(14,4,62,10,10)
+
+    success = 0
+    for client_a in clients:
+        for client_b in clients:
+        
+            if client_a.id == client_b.id:
+                success += 1
+                continue
+            
+            if UDP_Multiple_Hole_Punching(client_a, client_b, port_count):
+                success += 1
+    
+    print('Network Connective: %.2f%%' % (success/10000))
+    
 
 if __name__ == "__main__":
     
     # cone2cone_connect_test(100)
     # cone2sys_connect_test(10000, 200)
-    # sys2sys_connect_test(100, 200)
+    # sys2sys_connect_test(10000, 200)
     # original_predicted_cone2sys_connect_test(10000, 200, predict_rate=0.2)
     # original_predicted_sys2sys_connect_test(100, 200, predict_rate=0.2)
-    predicted_cone2sys_connect_test(10000, 200,  predict_rate=0.2)
-    # predicted_sys2sys_connect_test(100, 200, predict_rate=0.2)
+    # proposed_cone2sys_connect_test(100, 200,  predict_rate=0.2)
+    proposed_sys2sys_connect_test(100, 200, predict_rate=0.2)

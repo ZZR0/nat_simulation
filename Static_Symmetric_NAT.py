@@ -11,7 +11,7 @@ class Static_Symmetric_NAT:
         self.available_ports = list(range(PORT_NUM))
         self.out_table = {}
         self.in_table = {}
-        self.type = _type   # 'random' or 'increase'
+        self.type = 3
 
     def transform_out(self, sender_addr, recei_addr):
         sender_addr = to_Ipv4(sender_addr)
@@ -20,10 +20,7 @@ class Static_Symmetric_NAT:
         if out_key in self.out_table.keys():
             transform_addr = self.out_table[out_key]
         else:
-            if self.type == 'random':
-                port = sample(self.available_ports, 1)[0]
-            elif self.type == 'increase':
-                port = self.available_ports[0]
+            port = self.available_ports[0]
             self.available_ports.remove(port)
             transform_addr = '{}:{}'.format(self.outer_addr.ip, port)
             self.out_table[out_key] = transform_addr

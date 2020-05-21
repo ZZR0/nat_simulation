@@ -11,6 +11,7 @@ class Full_Cone_NAT:
         self.available_ports = set(range(PORT_NUM))
         self.out_table = {}
         self.in_table = {}
+        self.type = 0
 
     def transform_out(self, addr):
         addr = to_Ipv4(addr)
