@@ -222,7 +222,7 @@ def proposed_sys2sys_connect_test(count, port_count, predict_rate=1):
         s = 0
         clients = init_internet_env(0,0,0,2,2)
         client_a = clients[3][0]
-        client_b = clients[3][1]
+        client_b = clients[4][1]
 
         if Proposed_Method(client_a, client_b, port_count, predict_rate=predict_rate):
             success += 1     
@@ -249,7 +249,7 @@ def predicted_sys2sys_connect_test(count, port_count, predict_rate=1):
         s = 0
         clients = init_internet_env(0,0,0,2,2)
         client_a = clients[3][0]
-        client_b = clients[3][1]
+        client_b = clients[4][1]
 
         if Port_Prediction_Multiple_Hole_Punching(client_a, client_b, port_count, predict_rate=predict_rate):
             success += 1
@@ -393,8 +393,10 @@ def Proposed_Method(client_a, client_b, port_count, predict_rate=1):
     
     return False
 
-def network_connect_test(A_num, B_num, C_num, Dnum, E_num, port_count):
-    clients = init_internet_env(14,4,62,10,10)
+def network_connect_test(A_num, B_num, C_num, D_num, E_num, port_count, predict_rate=1):
+    clients = []
+    for client in init_internet_env(A_num, B_num, C_num, D_num, E_num):
+        clients.extend(client)
 
     success = 0
     for client_a in clients:
@@ -404,10 +406,16 @@ def network_connect_test(A_num, B_num, C_num, Dnum, E_num, port_count):
                 success += 1
                 continue
             
-            if UDP_Multiple_Hole_Punching(client_a, client_b, port_count):
+            # if UDP_Multiple_Hole_Punching(client_a, client_b, port_count):
+            #     success += 1
+
+            # if Port_Prediction_Multiple_Hole_Punching(client_a, client_b, port_count, predict_rate=predict_rate):
+            #     success += 1
+
+            if Proposed_Method(client_a, client_b, port_count, predict_rate=predict_rate):
                 success += 1
     
-    print('Network Connective: %.2f%%' % (success/10000))
+    print('Network Connective: %.2f%%' % (success/100))
     
 
 if __name__ == "__main__":
@@ -415,7 +423,8 @@ if __name__ == "__main__":
     # cone2cone_connect_test(100)
     # cone2sys_connect_test(10000, 200)
     # sys2sys_connect_test(10000, 200)
-    # original_predicted_cone2sys_connect_test(10000, 200, predict_rate=0.2)
-    # original_predicted_sys2sys_connect_test(100, 200, predict_rate=0.2)
-    # proposed_cone2sys_connect_test(100, 200,  predict_rate=0.2)
-    proposed_sys2sys_connect_test(100, 200, predict_rate=0.2)
+    # predicted_cone2sys_connect_test(10000, 200, predict_rate=0.2)
+    predicted_sys2sys_connect_test(10000, 200, predict_rate=0.2)
+    # proposed_cone2sys_connect_test(10000, 200,  predict_rate=0.2)
+    # proposed_sys2sys_connect_test(10000, 200, predict_rate=0.2)
+    # network_connect_test(14, 4, 62, 10, 10, 200, predict_rate=0.2)
